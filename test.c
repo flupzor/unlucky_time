@@ -16,6 +16,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <tzfile.h>
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
@@ -36,6 +38,12 @@ void assert_time_equals(char *, time_t, char *, time_t, const char *, int,
 			const char *);
 void assert_time_diff(char *, time_t, char *, time_t, char *, time_t, const
 		      char *, int, const char *);
+
+void test__days_in_month(void);
+void test__month_change_last_day(void);
+void test__month_change_first_day(void);
+void test__leap_day(void);
+void test__year_change(void);
 
 #define ASSERT_TIME_EQUALS(time1, time2) \
 	 assert_time_equals(#time1, time1, #time2, time2, __FILE__, __LINE__, __func__);
@@ -80,7 +88,8 @@ assert_time_diff(char *name1, time_t time1, char *name2, time_t time2, char *dif
 int
 main(void)
 {
-	time_t time_r, gettimeofday_r, clock_gettime_r;
+	time_t	time_r, gettimeofday_r, clock_gettime_r;
+	int	i;
 
 	unlucky_init();
 
@@ -108,6 +117,16 @@ main(void)
 
 	ASSERT_TIME_EQUALS(time_r, gettimeofday_r);
 	ASSERT_TIME_EQUALS(gettimeofday_r, clock_gettime_r);
+
+	test__days_in_month();
+
+	// Try a thousand different random dates.
+	for (i = 0; i < 1000; i++) {
+		test__month_change_last_day();
+		test__month_change_first_day();
+		test__leap_day();
+		test__year_change();
+	}
 
 	printf("All tests ran successfully.\n");
 	exit(EXIT_SUCCESS);
@@ -248,3 +267,139 @@ verify_clock_gettime(void)
 
 	ASSERT_TIME_DIFF(tval.tv_sec, tval_orig.tv_sec, diff);
 }
+
+/*
+ * Test certain internal functions.
+ */
+
+int _random_time_in_the_future(struct tm *current, struct tm *new);
+int _days_in_month(int year, int month);
+int _month_change_last_day(struct tm *current, struct tm *new);
+int _month_change_first_day(struct tm *current, struct tm *new);
+int _leap_day(struct tm *current, struct tm *new);
+int _year_change(struct tm *current, struct tm *new);
+
+void
+print_struct_tm(struct tm *tm)
+{
+	printf("tm->year: %d\n", tm->tm_year);
+	printf("tm->mon: %d\n", tm->tm_mon);
+	printf("tm->mday: %d\n", tm->tm_mday);
+	printf("tm->hour: %d\n", tm->tm_hour);
+	printf("tm->min: %d\n", tm->tm_min);
+	printf("tm->sec: %d\n", tm->tm_sec);
+	printf("tm->tm_isdst: %d\n", tm->tm_isdst);
+	printf("tm->tm_gmtoff: %d\n", tm->tm_gmtoff);
+	printf("tm->tm_zone: %s\n", tm->tm_zone);
+}
+
+void
+test__month_change_last_day(void)
+{
+	struct timespec	current_time;
+	struct tm	new, cur;
+	int		r;
+	time_t		time_t_new;
+
+	if (original_clock_gettime(CLOCK_REALTIME, &current_time) == -1)
+		abort();
+	if (localtime_r(&current_time.tv_sec, &cur) == NULL)
+		abort();
+
+	r = _month_change_last_day(&cur, &new);
+
+	time_t_new = mktime(&new);
+	if (time_t_new == -1)
+		abort();
+
+	if (localtime_r(&time_t_new, &new) == NULL)
+		abort();
+
+	assert(new.tm_mday == 28 || new.tm_mday == 29 || new.tm_mday == 30 ||
+	       new.tm_mday == 31);
+}
+
+void
+test__month_change_first_day(void)
+{
+	struct timespec	current_time;
+	struct tm	new, cur;
+	int		r;
+	time_t		time_t_new;
+
+	if (original_clock_gettime(CLOCK_REALTIME, &current_time) == -1)
+		abort();
+	if (localtime_r(&current_time.tv_sec, &cur) == NULL)
+		abort();
+
+	r = _month_change_first_day(&cur, &new);
+
+	time_t_new = mktime(&new);
+	if (time_t_new == -1)
+		abort();
+
+	if (localtime_r(&time_t_new, &new) == NULL)
+		abort();
+
+	assert(new.tm_mday == 1);
+}
+
+void
+test__leap_day(void)
+{
+	struct timespec	current_time;
+	struct tm	new, cur;
+	int		r;
+	time_t		time_t_new;
+
+	if (original_clock_gettime(CLOCK_REALTIME, &current_time) == -1)
+		abort();
+	if (localtime_r(&current_time.tv_sec, &cur) == NULL)
+		abort();
+
+	r = _leap_day(&cur, &new);
+
+	time_t_new = mktime(&new);
+	if (time_t_new == -1)
+		abort();
+
+	if (localtime_r(&time_t_new, &new) == NULL)
+		abort();
+
+	assert(new.tm_mday == 29 && new.tm_mon == TM_FEBRUARY);
+}
+
+void
+test__year_change(void)
+{
+	struct timespec	current_time;
+	struct tm	new, cur;
+	int		r;
+	time_t		time_t_new;
+
+	if (original_clock_gettime(CLOCK_REALTIME, &current_time) == -1)
+		abort();
+	if (localtime_r(&current_time.tv_sec, &cur) == NULL)
+		abort();
+
+	r = _year_change(&cur, &new);
+
+	time_t_new = mktime(&new);
+	if (time_t_new == -1)
+		abort();
+
+	if (localtime_r(&time_t_new, &new) == NULL)
+		abort();
+
+	assert(new.tm_mday == 31 && new.tm_mon == TM_DECEMBER);
+}
+
+void
+test__days_in_month(void)
+{
+	assert(_days_in_month(1800, TM_FEBRUARY) == 28);
+	assert(_days_in_month(2000, TM_FEBRUARY) == 29);
+	assert(_days_in_month(2003, TM_FEBRUARY) == 28);
+	assert(_days_in_month(2004, TM_FEBRUARY) == 29);
+}
+

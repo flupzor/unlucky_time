@@ -19,6 +19,7 @@
 #include <dlfcn.h>
 
 #include <time.h>
+#include <tzfile.h>
 #include <stdio.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -28,6 +29,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <errno.h>
+#include <assert.h>
 
 #include "unlucky_time.h"
 
@@ -43,8 +45,6 @@ void _init_time_diff(void);
 void
 unlucky_init(void)
 {
-	_init_time_diff();
-
 	if (original_gettimeofday == NULL)
 		original_gettimeofday = (gettimeofday_func_t)dlsym(RTLD_NEXT, "gettimeofday");
 
@@ -53,31 +53,301 @@ unlucky_init(void)
 
 	if (original_clock_gettime == NULL)
 		original_clock_gettime = (clock_gettime_func_t)dlsym(RTLD_NEXT, "clock_gettime");
+
+	_init_time_diff();
+}
+
+enum time_mode {
+	UL_RANDOM_TIME = 0,
+	UL_YEAR_CHANGE = 1,
+	UL_MONTH_CHANGE_FIRST_DAY = 2,
+	UL_MONTH_CHANGE_LAST_DAY = 3,
+	UL_LEAP_DAY = 4,
+	UL_NR_ENTRIES = 5,
+};
+
+int
+_days_in_month(int year, int month)
+{
+	switch (month) {
+	case TM_JANUARY:
+		return 31;
+	case TM_FEBRUARY:
+		// Years that are divisible by 100 but not
+		// by 400 do not contain leap days.
+		if (year % 100 == 0 && year % 400 != 0)
+			return 28;
+
+		if (year % 4 == 0)
+			return 29;
+		return 28;
+	case TM_MARCH:
+		return 31;
+	case TM_APRIL:
+		return 30;
+	case TM_MAY:
+		return 31;
+	case TM_JUNE:
+		return 30;
+	case TM_JULY:
+		return 31;
+	case TM_AUGUST:
+		return 31;
+	case TM_SEPTEMBER:
+		return 30;
+	case TM_OCTOBER:
+		return 31;
+	case TM_NOVEMBER:
+		return 30;
+	case TM_DECEMBER:
+		return 31;
+	}
+}
+
+/* The function find a random date which is higher than the date
+ * specified in the current parameter. This date is then written
+ * to the new parameter.
+ *
+ * The new date written to the new parameter are randomly picked
+ * when the value is -1 or is not modified when the value is
+ * any other value.
+ *
+ * Returns a time difference from the current time.
+ */
+time_t
+_random_time_in_the_future(struct tm *current, struct tm *new)
+{
+	int days_in_month;
+
+	if (new->tm_year == -1)
+		new->tm_year = current->tm_year + arc4random_uniform(6 + 1); // Max 6 years in the future.
+
+	assert (new->tm_year >= current->tm_year);
+
+	if (new->tm_mon == -1) {
+		// Check if this is this year.
+		if (new->tm_year == current->tm_year) {
+			new->tm_mon = current->tm_mon + arc4random_uniform(11 + 1-current->tm_mon);
+		} else {
+			new->tm_mon = arc4random_uniform(11 + 1);
+		}
+	}
+
+	assert (new->tm_mon <= 11 && new->tm_mon >= 0);
+
+	days_in_month = _days_in_month(new->tm_year + 1900, new->tm_mon);
+
+	if (new->tm_mday == -1) {
+		if (new->tm_year == current->tm_year && new->tm_mon == current->tm_mon) {
+			printf("p1\n");
+			new->tm_mday = current->tm_mday + arc4random_uniform(days_in_month + 1 - current->tm_mday);
+		} else {
+			printf("p2\n");
+			new->tm_mday = arc4random_uniform(days_in_month) + 1;
+		}
+	}
+
+	assert (new->tm_mday > 0 && new->tm_mday <= days_in_month);
+
+	if (new->tm_hour == -1) {
+		// Check this is this day.
+		if (new->tm_year == current->tm_year && new->tm_mon == current->tm_mon &&
+		    new->tm_mday == current->tm_mday) {
+			new->tm_hour = current->tm_hour + arc4random_uniform(23 + 1 - current->tm_hour);
+		} else {
+			new->tm_hour = arc4random_uniform(23 + 1);
+		}
+	}
+
+	assert(new->tm_hour >= 0 && new->tm_hour <= 23);
+
+	if (new->tm_min == -1 ) {
+		// Check if this is this hour.
+		if (new->tm_year == current->tm_year && new->tm_mon == current->tm_mon &&
+		    new->tm_mday == current->tm_mday && new->tm_hour == current->tm_hour) {
+			new->tm_min = current->tm_min + arc4random_uniform(59 + 1 - current->tm_min);
+		} else {
+			new->tm_min = arc4random_uniform(59 + 1);
+		}
+	}
+
+	assert(new->tm_hour >= 0 && new->tm_hour <= 59);
+
+	if (new->tm_sec == -1) {
+		// Check if this is this minute.
+		// TODO: This can be 60 in case of a LEAP second.
+		if (new->tm_year == current->tm_year && new->tm_mon == current->tm_mon &&
+		    new->tm_mday == current->tm_mday && new->tm_hour == current->tm_hour &&
+		    new->tm_min == current->tm_min) {
+			new->tm_sec = current->tm_sec + arc4random_uniform(59 + 1 - current->tm_sec);
+		} else {
+			new->tm_sec = arc4random_uniform(59 + 1);
+		}
+	}
+
+	assert(new->tm_hour >= 0 && new->tm_hour <= 59);
+
+	// Nake sure it is in the future.
+	assert(mktime(new) >= mktime(current));
+
+	new->tm_isdst = current->tm_isdst;
+	new->tm_gmtoff = current->tm_gmtoff;
+	new->tm_zone = current->tm_zone;
+
+
+	return mktime(new) - mktime(current);
+}
+
+int
+_month_change_last_day(struct tm *current, struct tm *new)
+{
+	new->tm_year = current->tm_year + arc4random_uniform(6 + 1); // Max 6 years in the future.
+
+	// Check if this is this year.
+	if (new->tm_year == current->tm_year) {
+		new->tm_mon = current->tm_mon + arc4random_uniform(11 + 1-current->tm_mon);
+	} else {
+		new->tm_mon = arc4random_uniform(11 + 1);
+	}
+
+	new->tm_mday = _days_in_month(new->tm_year + 1900, new->tm_mon);
+	new->tm_hour = -1;
+	new->tm_min = -1;
+	new->tm_sec = -1;
+	new->tm_isdst = 0;
+	new->tm_gmtoff = 0;
+	new->tm_zone = NULL;
+
+	return _random_time_in_the_future(current, new);
+}
+
+int
+_month_change_first_day(struct tm *current, struct tm *new)
+{
+	new->tm_year = -1;
+	new->tm_mon = -1;
+	new->tm_hour = -1;
+	new->tm_min = -1;
+	new->tm_sec = -1;
+	new->tm_isdst = 0;
+	new->tm_gmtoff = 0;
+	new->tm_zone = NULL;
+
+	new->tm_mday = 1;
+
+	return _random_time_in_the_future(current, new);
+}
+
+int
+_leap_day(struct tm *current, struct tm *new)
+{
+	int year;
+
+	year = current->tm_year + 1900;
+
+	// Either, if the current is a leap year, select that,
+	// otherwise select the next leap year.
+	year = year + 4 - (year % 4);
+
+	// randomly pick max 3 * 4 = 12 years in the future.
+	year += 4 * arc4random_uniform(3 + 1);
+
+	// Years that are divisible by 100 but not
+	// by 400 do not contain leap days.
+	if (year % 100 == 0 && year % 400 != 0)
+		year += 4;
+
+	new->tm_year = year - 1900;
+	new->tm_mon = TM_FEBRUARY;
+	new->tm_mday = 29;
+	new->tm_hour = -1;
+	new->tm_min = -1;
+	new->tm_sec = -1;
+
+	return _random_time_in_the_future(current, new);
+}
+
+int
+_year_change(struct tm *current, struct tm *new)
+{
+	new->tm_year = current->tm_year + arc4random_uniform(6 + 1); // Max 6 years in the future.
+	new->tm_mon = TM_DECEMBER;
+	new->tm_mday = _days_in_month(new->tm_year + 1900, new->tm_mon);
+	new->tm_hour = -1;
+	new->tm_min = -1;
+	new->tm_sec = -1;
+
+	return _random_time_in_the_future(current, new);
 }
 
 void
 _init_time_diff(void)
 {
-	int time_period_in_seconds;
+	int		time_period_in_seconds;
+	enum time_mode	mode;
+	struct timespec	current_time;
 
-	// 31st
-	// 1st
-	// 2014 -> 2015
-	// year -> year+1
-	// leap day
+	mode = arc4random_uniform(UL_NR_ENTRIES);
 
+	if (diff_set == 1)
+		return;
 
-	// Initialize the diff one time to make sure the time does continue
-	// normally.
-	if (diff_set == 0) {
-		// 6 years, 3 years in the past and 3 years in the future.
+	if (original_clock_gettime(CLOCK_REALTIME, &current_time) == -1)
+		abort();
+
+	switch(mode) {
+	case UL_RANDOM_TIME:
+		// 6 years in the future;
 		time_period_in_seconds = 6 * 365 * 24 * 60 * 60;
 
 		diff = arc4random_uniform(time_period_in_seconds);
-
-		diff -= time_period_in_seconds / 2;
-
 		diff_set = 1;
+	break;
+	case UL_MONTH_CHANGE_LAST_DAY: {
+		struct tm	new, cur;
+		int		year;
+
+		if (gmtime_r(&current_time.tv_sec, &cur) == NULL)
+			abort();
+
+		diff = _month_change_last_day(&cur, &new);
+		diff_set = 1;
+		break;
+	}
+	case UL_MONTH_CHANGE_FIRST_DAY: {
+		struct tm	new, cur;
+		int		year;
+
+		if (gmtime_r(&current_time.tv_sec, &cur) == NULL)
+			abort();
+
+		diff = _month_change_first_day(&cur, &new);
+		diff_set = 1;
+		break;
+	}
+	case UL_YEAR_CHANGE: {
+		struct tm	new, cur;
+		int		year;
+
+		if (gmtime_r(&current_time.tv_sec, &cur) == NULL)
+			abort();
+
+		diff = _year_change(&cur, &new);
+		diff_set = 1;
+		break;
+	}
+	case UL_LEAP_DAY: {
+		struct tm	new, cur;
+		int		year;
+
+		if (gmtime_r(&current_time.tv_sec, &cur) == NULL)
+			abort();
+
+		diff = _leap_day(&cur, &new);
+		diff_set = 1;
+
+		break;
+		}
 	}
 }
 
