@@ -149,24 +149,3 @@ time(time_t *tloc)
 	return r;
 }
 #endif
-
-int
-connect(int s, const struct sockaddr *name, socklen_t namelen)
-{
-	struct sockaddr_in	*i_addr;
-	connect_func_t		 original_connect;
-
-	original_connect = (connect_func_t)dlsym(RTLD_NEXT,"connect");
-
-	if (name->sa_family == AF_INET) {
-		i_addr = (struct sockaddr_in *)name;
-
-		if (i_addr->sin_addr.s_addr != inet_addr("127.0.0.1")) {
-			errno = EHOSTUNREACH;
-
-			return -1;
-		}
-	}
-
-	return original_connect(s, name, namelen);
-}
