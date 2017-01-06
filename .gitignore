@@ -1,4 +1,7 @@
 *.swp
 *.so
+*.o
 test
 unlucky_time.so
+test_unlucky_time
+test_override

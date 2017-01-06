@@ -8,20 +8,8 @@ which shouldn't be dependent on time.
 Usage
 -----
 
-On Linux:
-
 ```
-cd linux
-make ../test
-../test
-```
-
-On OpenBSD:
-
-```
-cd bsd
-make ../test
-../test
+make test
 ```
 
 If this doesn't return: "All tests ran successfully." the code should be
@@ -31,8 +19,7 @@ is the case.
 Then on either platform:
 
 ```
-make ../unlucky_time.so
-cd ..
+make
 ./run.sh ./example.py
 ```
 
@@ -42,11 +29,6 @@ possible to make date shifts using the unlucky_time tool.
 
 TODO
 ----
-
-* Currently the date shifts are implemented by taking a random number and going
-  either 3 years in the past or 3 years in the future. What would be more
-  useful if certain dates where picked which generally cause problems, like Dec
-  31st, leap day, beginning of a month, etc.
 
 * There is no thread safety.
 

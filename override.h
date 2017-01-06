@@ -1,5 +1,6 @@
+
 /*
- * Copyright (c) 2017 Alexander Schrijver <alex@flupzor.nl
+ * Copyright (c) 2015 Alexander Schrijver <alex@flupzor.nl
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,24 +15,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <time.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <errno.h>
 
-enum unlucky_mode {
-	UNLUCKY_FIRST_OF_MONTH,
-	UNLUCKY_LAST_OF_MONTH,
-	UNLUCKY_LEAP_DAY,
-	UNLUCKY_DST_CHANGE,
-	UNLUCKY_LEAP_SECOND,
-	UNLUCKY_RANDOM,
-};
 
-struct unlucky_state {
-	int	initialized;
-	time_t  (*diff_fn)(time_t, time_t);
-	time_t  start_time;
-	time_t	diff;
-};
+typedef int (*gettimeofday_func_t)(struct timeval *tp, struct timezone *tzp);
+typedef int (*time_func_t)(time_t *t);
+typedef int (*clock_gettime_func_t)(clockid_t clock_id, struct timespec *tp);
+typedef int (*connect_func_t)(int s, const struct sockaddr *name, socklen_t namelen);
 
-void	unlucky_init(struct unlucky_state *state, time_t start_time, enum unlucky_mode mode);
-time_t	unlucky_diff(struct unlucky_state *state, time_t current_time);
+gettimeofday_func_t	original_gettimeofday;
+time_func_t		original_time;
+clock_gettime_func_t	original_clock_gettime;
 
+time_t			gettimediff(time_t current_time);
