@@ -9,17 +9,18 @@ Usage
 -----
 
 ```
-make test
+autoreconf -i
+./configure
+make
+make check
 ```
 
-If this doesn't return: "All tests ran successfully." the code should be
-modified in order to make it work on your platform. Send me an e-mail if this
-is the case.
+If the testsuite returns errors or failures the code should be modified in
+order to make it work on your platform. Send me an e-mail if this is the case.
 
 Then on either platform:
 
 ```
-make
 ./run.sh ./example.py
 ```
 
@@ -37,5 +38,3 @@ TODO
 
 * I haven't looked into fork(2)ing yet. Might be possible to support
   application which fork(2) as well.
-
-* Use GNU autoconf.
