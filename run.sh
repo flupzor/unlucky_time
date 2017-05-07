@@ -1,3 +1,3 @@
 #!/bin/sh
 
-LD_PRELOAD=$PWD/unlucky_time.so ${@}
+LD_PRELOAD=$PWD/.libs/libunlucky.so ${@}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 Alexander Schrijver <alex@flupzor.nl
+ * Copyright (c) 2015, 2017 Alexander Schrijver <alex@flupzor.nl
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,7 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/time.h>
+
+#include <check.h>
+#include <stdlib.h>
 
 #include <assert.h>
 #include <stdio.h>
@@ -22,52 +24,13 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "override.h"
-#include "unlucky_time.h"
-#include "utils.h"
-#include "test.h"
-
-void	verify_gettimeofday(void);
-void	verify_time(void);
-void	verify_clock_gettime(void);
+#include "../src/override.h"
+#include "../src/unlucky_time.h"
+#include "../src/utils.h"
 
 time_t	consistent_time(void);
 time_t	consistent_gettimeofday(void);
 time_t	consistent_clock_gettime(void);
-
-
-int
-main(void)
-{
-	time_t time_r, gettimeofday_r, clock_gettime_r;
-
-#ifdef OVERRIDE_GETTIMEOFDAY
-	verify_gettimeofday();
-#endif
-#ifdef OVERRIDE_TIME
-	verify_time();
-#endif
-#ifdef OVERRIDE_CLOCK_GETTIME
-	verify_clock_gettime();
-#endif
-
-	/* Because we override various time function, and various libc
-	 * implement these function different. For example, time() calls
-	 * gettimeofday() on OpenBSD. So if we override both it would result in
-	 * the diff being applied twice.
-	 *
-	 * So, here we check if all the time functions return the same value.
-	 */
-
-	time_r = consistent_time();
-	gettimeofday_r = consistent_gettimeofday();
-	clock_gettime_r = consistent_clock_gettime();
-
-	ASSERT_TIME_EQUALS(time_r, gettimeofday_r);
-	ASSERT_TIME_EQUALS(gettimeofday_r, clock_gettime_r);
-
-	exit(EXIT_SUCCESS);
-}
 
 /*
  * Helper function to verify if the time(), gettimeofday and clock_gettime
@@ -114,19 +77,38 @@ consistent_clock_gettime(void)
 	return tval.tv_sec;
 }
 
+/* Because we override various time function, and various libc
+ * implement these function different. For example, time() calls
+ * gettimeofday() on OpenBSD. So if we override both it would result in
+ * the diff being applied twice.
+ *
+ * So, here we check if all the time functions return the same value.
+ */
+START_TEST(test_consistency)
+{
+	time_t time_r, gettimeofday_r, clock_gettime_r;
+
+	time_r = consistent_time();
+	gettimeofday_r = consistent_gettimeofday();
+	clock_gettime_r = consistent_clock_gettime();
+
+	ck_assert_int_eq(time_r, gettimeofday_r);
+	ck_assert_int_eq(gettimeofday_r, clock_gettime_r);
+}
+END_TEST
+
 /*
  * Test wether a diff is applied on top of the original value returned by the
  * time(), gettimeofday() and clock_gettime() functions
  */
-void
-verify_time(void)
+START_TEST(test_time)
 {
 	time_t		time_r_orig, time_r_orig2, time_r, time_r2;
 	time_t		diff;
 
 
 	time_r2 = time(&time_r);
-	assert(time_r2 == time_r);
+	ck_assert(time_r2 == time_r);
 
 	if (time_r2 == -1) {
 		perror("time");
@@ -134,7 +116,7 @@ verify_time(void)
 	}
 
 	time_r_orig2 = original_time(&time_r_orig);
-	assert(time_r_orig2 == time_r_orig);
+	ck_assert(time_r_orig2 == time_r_orig);
 	if (time_r_orig2 == -1) {
 		perror("original_time");
 		exit(EXIT_FAILURE);
@@ -146,11 +128,11 @@ verify_time(void)
 		exit(EXIT_FAILURE);
 	}
 
-	ASSERT_TIME_DIFF(time_r, time_r_orig, diff);
+	ck_assert_int_eq(time_r - time_r_orig, diff);
 }
+END_TEST
 
-void
-verify_gettimeofday(void)
+START_TEST(test_gettimeofday)
 {
 	struct timeval	tval_orig, tval;
 	struct timezone	tzone_orig, tzone;
@@ -175,11 +157,11 @@ verify_gettimeofday(void)
 		exit(EXIT_FAILURE);
 	}
 
-	ASSERT_TIME_DIFF(tval.tv_sec, tval_orig.tv_sec, diff);
+	ck_assert_int_eq(tval.tv_sec - tval_orig.tv_sec, diff);
 }
+END_TEST
 
-void
-verify_clock_gettime(void)
+START_TEST(test_clock_gettime)
 {
 	int		r, r2;
 	time_t		diff;
@@ -203,5 +185,42 @@ verify_clock_gettime(void)
 		exit(EXIT_FAILURE);
 	}
 
-	ASSERT_TIME_DIFF(tval.tv_sec, tval_orig.tv_sec, diff);
+	ck_assert_int_eq(tval.tv_sec - tval_orig.tv_sec, diff);
+}
+END_TEST
+
+
+Suite * override_suite(void)
+{
+    Suite *s;
+    TCase *tc_core;
+
+    s = suite_create("Override");
+
+    /* Core test case */
+    tc_core = tcase_create("Core");
+
+    tcase_add_test(tc_core, test_time);
+    tcase_add_test(tc_core, test_gettimeofday);
+    tcase_add_test(tc_core, test_clock_gettime);
+    tcase_add_test(tc_core, test_consistency);
+
+    suite_add_tcase(s, tc_core);
+
+    return s;
+}
+
+int main(void)
+{
+    int number_failed;
+    Suite *s;
+    SRunner *sr;
+
+    s = override_suite();
+    sr = srunner_create(s);
+
+    srunner_run_all(sr, CK_NORMAL);
+    number_failed = srunner_ntests_failed(sr);
+    srunner_free(sr);
+    return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
