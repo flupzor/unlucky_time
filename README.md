@@ -38,3 +38,5 @@ TODO
 
 * I haven't looked into fork(2)ing yet. Might be possible to support
   application which fork(2) as well.
+
+* Look at libfaketime https://github.com/wolfcw/libfaketime/tree/master/src
